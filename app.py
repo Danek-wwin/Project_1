@@ -5,7 +5,6 @@ import torch.nn.functional as F
 from torchvision import transforms
 from PIL import Image, ImageOps
 import numpy as np
-import cv2
 
 # ===== 1. АРХИТЕКТУРА (скопирована из твоего кода) =====
 class Net(nn.Module):
@@ -43,55 +42,36 @@ model = load_model()
 
 # ===== 3. ПРЕПРОЦЕССИНГ (скопирован из твоего кода) =====
 def preprocess_multiple_digits(image):
+    # Мы принимаем объект Image от Streamlit, а не путь к файлу
     img = image.convert('L')
     img = ImageOps.invert(img)
     arr = np.array(img)
 
-    # 1. Бинаризация методом Оцу (отлично работает при разном освещении)
-    _, arr = cv2.threshold(arr, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    threshold = arr.mean() + 30
+    arr = np.where(arr > threshold, 255, 0).astype(np.uint8)
 
-    # 2. Убираем мелкий шум (текст внизу, точки)
-    # Мы "размываем" картинку, чтобы мелкие элементы исчезли, а крупные остались
-    kernel = np.ones((2,3), np.uint8)
-    arr = cv2.morphologyEx(arr, cv2.MORPH_OPEN, kernel)
+    # Ищем границы по столбцам
+    cols = np.any(arr > 0, axis=0)
+    col_indices = np.where(cols)[0]
 
-    # 3. Находим контуры всех объектов на фото
-    contours, _ = cv2.findContours(arr, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
+    if len(col_indices) == 0:
+        return []
+
+    # Разбиваем на группы
+    splits = np.split(col_indices, np.where(np.diff(col_indices) > 10)[0] + 1)
+
     tensors = []
-    
-    # 4. Оставляем только достаточно большие контуры (игнорируем мелкий текст)
-    # Высота картинки может быть разной, поэтому берем порог относительно размера
-    min_height = arr.shape[0] * 0.05 # Игнорируем всё, что меньше 5% высоты фото
-
-    # Сортируем контуры слева направо, чтобы цифры шли по порядку
-    bounding_boxes = [cv2.boundingRect(c) for c in contours]
-    bounding_boxes.sort(key=lambda x: x[0])
-
-    for x, y, w, h in bounding_boxes:
-        if h < min_height: # Пропускаем логотипы и мелкий текст
-            continue
-            
-        # 2. НОВОЕ: Отсекаем слишком вытянутые объекты (тени, линии, края стола)
-        # Если объект в 4 раза шире, чем выше (или наоборот) — это не цифра, а мусор.
-        aspect_ratio = w / float(h)
-        if aspect_ratio > 4.0 or aspect_ratio < 0.25:
+    for split in splits:
+        if len(split) < 5: # Игнорируем мелкий мусор
             continue
 
-        # 3. НОВОЕ: Проверяем "заполненность" (плотность белых пикселей)
-        # У цифры линия занимает около 20-40% от рамки. Если заполнено 90% — это сплошное пятно тени.
-        roi = arr[y:y+h, x:x+w]
-        white_pixels = np.sum(roi == 255)
-        total_pixels = w * h
-        fill_ratio = white_pixels / total_pixels
-    
-        if fill_ratio > 0.7: # Если пятно слишком плотное (залитое) — пропускаем
-            continue
+        x_min, x_max = split[0], split[-1]
+        rows = np.any(arr[:, x_min:x_max+1] > 0, axis=1)
+        y_min, y_max = np.where(rows)[0][[0, -1]]
 
-        # Вырезаем найденную цифру
-        digit_arr = arr[y:y+h, x:x+w]
+        digit_arr = arr[y_min:y_max+1, x_min:x_max+1]
 
-        # Вписываем в квадрат 28x28
+        h, w = digit_arr.shape
         size = max(h, w)
         pad = int(size * 0.2)
         square = np.zeros((size + 2*pad, size + 2*pad), dtype=np.uint8)
@@ -113,79 +93,11 @@ st.set_page_config(page_title="Распознавание чисел", page_icon
 st.title("🔢 Распознавание рукописных чисел")
 st.write("Загрузите фото с числом. Цифры должны быть написаны **темным маркером на светлом фоне** с небольшим пробелом друг от друга.")
 
-# --- Выбор способа ввода: камера или файл ---
-st.write("Выберите способ добавления фото:")
-option = st.radio("", ["📷 Сделать фото", "📁 Загрузить файл"], label_visibility="collapsed")
+# Кнопка загрузки файла
+uploaded_file = st.file_uploader("Выберите изображение...", type=["jpg", "jpeg", "png"])
 
-image = None
-
-if option == "📷 Сделать фото":
-    picture = st.camera_input("Сделайте снимок")
-    if picture:
-        image = Image.open(picture)
-else:
-    uploaded_file = st.file_uploader("Выберите изображение...", type=["jpg", "jpeg", "png"])
-    if uploaded_file is not None:
-        image = Image.open(uploaded_file)
-
-if image is not None:    
+if uploaded_file is not None:
+    image = Image.open(uploaded_file)
+    
     # Показываем загруженное фото
     st.image(image, caption='Ваше фото', width=300)
-    
-    with st.spinner('Распознаем...'):
-        tensors_list = preprocess_multiple_digits(image)
-        
-        if len(tensors_list) == 0:
-            st.error("Не удалось найти цифры на фото. Попробуйте сфотографировать еще раз.")
-        else:
-            predicted_number = ""
-            confidences = []
-            
-            with torch.no_grad():
-                for t in tensors_list:
-                    t = t.unsqueeze(0)
-                    output = model(t)
-                    probs = F.softmax(output, dim=1)[0]
-                    pred = probs.argmax().item()
-                    conf = probs[pred].item() * 100
-                    predicted_number += str(pred)
-                    confidences.append(conf)
-            
-            # Выводим большой красивый результат
-            st.success(f"### Распознанное число: {predicted_number}")
-            
-            # Выводим уверенность по каждой цифре
-            st.write("Детали по цифрам:")
-            for i, (digit, conf) in enumerate(zip(predicted_number, confidences)):
-                st.write(f"- Цифра {i+1}: **{digit}** (уверенность {conf:.1f}%)")
-            # --- НОВЫЙ БЛОК: Показываем, как видит сеть ---
-            st.divider() # Красивая линия-разделитель
-
-            # Создаем "память" для кнопки, если ее еще нет
-            if 'show_images' not in st.session_state:
-                st.session_state.show_images = False
-
-            # Кнопка-переключатель
-            button_text = "🙈 Скрыть, как видит нейросеть" if st.session_state.show_images else "👁️ Показать, как видит нейросеть"
-
-            if st.button(button_text):
-                # Меняем состояние на противоположное (было False -> стало True)
-                st.session_state.show_images = not st.session_state.show_images
-                st.rerun() # Принудительно перерисовываем страницу, чтобы применить изменения
-
-            # Если состояние True (кнопка нажата) — показываем картинки
-            if st.session_state.show_images:
-                st.write("Ниже показаны картинки 28x28, которые нейросеть получила на вход:")
-    
-                # Создаем колонки, чтобы картинки шли в ряд
-                cols = st.columns(len(tensors_list))
-    
-                for i, tensor in enumerate(tensors_list):
-                    # 1. Превращаем тензор в numpy-массив
-                    img_array = tensor[0].numpy()
-        
-                    # 2. Делаем обратную нормализацию
-                    img_array = img_array * 0.3081 + 0.1307
-        
-                    # 3. Показываем картинку в колонке
-                    cols[i].image(img_array, caption=f"Вход для {predicted_number[i]}", width=100, clamp=True)
