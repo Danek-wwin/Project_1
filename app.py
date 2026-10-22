@@ -52,7 +52,7 @@ def preprocess_multiple_digits(image):
 
     # 2. Убираем мелкий шум (текст внизу, точки)
     # Мы "размываем" картинку, чтобы мелкие элементы исчезли, а крупные остались
-    kernel = np.ones((3,3), np.uint8)
+    kernel = np.ones((2,3), np.uint8)
     arr = cv2.morphologyEx(arr, cv2.MORPH_OPEN, kernel)
 
     # 3. Находим контуры всех объектов на фото
@@ -70,6 +70,22 @@ def preprocess_multiple_digits(image):
 
     for x, y, w, h in bounding_boxes:
         if h < min_height: # Пропускаем логотипы и мелкий текст
+            continue
+            
+        # 2. НОВОЕ: Отсекаем слишком вытянутые объекты (тени, линии, края стола)
+        # Если объект в 4 раза шире, чем выше (или наоборот) — это не цифра, а мусор.
+        aspect_ratio = w / float(h)
+        if aspect_ratio > 4.0 or aspect_ratio < 0.25:
+            continue
+
+        # 3. НОВОЕ: Проверяем "заполненность" (плотность белых пикселей)
+        # У цифры линия занимает около 20-40% от рамки. Если заполнено 90% — это сплошное пятно тени.
+        roi = arr[y:y+h, x:x+w]
+        white_pixels = np.sum(roi == 255)
+        total_pixels = w * h
+        fill_ratio = white_pixels / total_pixels
+    
+        if fill_ratio > 0.7: # Если пятно слишком плотное (залитое) — пропускаем
             continue
 
         # Вырезаем найденную цифру
