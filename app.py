@@ -6,6 +6,7 @@ from torchvision import transforms
 from PIL import Image, ImageOps
 import numpy as np
 import cv2
+from streamlit_cropper import st_cropper
 
 # ===== 1. АРХИТЕКТУРА (скопирована из твоего кода) =====
 class Net(nn.Module):
@@ -127,7 +128,28 @@ else:
     uploaded_file = st.file_uploader("Выберите изображение...", type=["jpg", "jpeg", "png"])
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
+# ... (твой код выбора камеры или загрузки файла, где создается переменная image) ...
 
+if image is not None:
+    st.write("### Обрежьте фото")
+    st.write("Выделите рамкой только те цифры, которые нужно распознать.")
+    
+    # Вызываем интерактивную обрезку
+    # realtime_update=True означает, что картинка будет обрезаться сразу, как ты двигаешь рамку
+    cropped_image = st_cropper(
+        image, 
+        realtime_update=True, 
+        box_color='#FF0000', # Красная рамка для заметности
+        aspect_ratio=None    # Свободные пропорции, чтобы ты сам мог выбрать нужную область
+    )
+    
+    # Показываем то, что получилось после обрезки
+    st.image(cropped_image, caption='Фото после обрезки', width=300)
+    
+    # Дальше в обработку идет уже обрезанное фото
+    with st.spinner('Распознаем...'):
+        tensors_list = preprocess_multiple_digits(cropped_image)
+        # ... (и весь остальной код предсказания остается без изменений) ...
 if image is not None:    
     # Показываем загруженное фото
     st.image(image, caption='Ваше фото', width=300)
