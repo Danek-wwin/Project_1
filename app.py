@@ -1,4 +1,3 @@
-# VERSION 1.0
 import streamlit as st
 import torch
 import torch.nn as nn
@@ -6,7 +5,6 @@ import torch.nn.functional as F
 from torchvision import transforms
 from PIL import Image, ImageOps
 import numpy as np
-import cv2
 
 # ===== 1. АРХИТЕКТУРА (скопирована из твоего кода) =====
 class Net(nn.Module):
@@ -44,39 +42,36 @@ model = load_model()
 
 # ===== 3. ПРЕПРОЦЕССИНГ (скопирован из твоего кода) =====
 def preprocess_multiple_digits(image):
+    # Мы принимаем объект Image от Streamlit, а не путь к файлу
     img = image.convert('L')
     img = ImageOps.invert(img)
     arr = np.array(img)
 
-    # 1. Бинаризация методом Оцу (отлично работает при разном освещении)
-    _, arr = cv2.threshold(arr, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    threshold = arr.mean() + 30
+    arr = np.where(arr > threshold, 255, 0).astype(np.uint8)
 
-    # 2. Убираем мелкий шум (текст внизу, точки)
-    # Мы "размываем" картинку, чтобы мелкие элементы исчезли, а крупные остались
-    kernel = np.ones((3,3), np.uint8)
-    arr = cv2.morphologyEx(arr, cv2.MORPH_OPEN, kernel)
+    # Ищем границы по столбцам
+    cols = np.any(arr > 0, axis=0)
+    col_indices = np.where(cols)[0]
 
-    # 3. Находим контуры всех объектов на фото
-    contours, _ = cv2.findContours(arr, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
+    if len(col_indices) == 0:
+        return []
+
+    # Разбиваем на группы
+    splits = np.split(col_indices, np.where(np.diff(col_indices) > 10)[0] + 1)
+
     tensors = []
-    
-    # 4. Оставляем только достаточно большие контуры (игнорируем мелкий текст)
-    # Высота картинки может быть разной, поэтому берем порог относительно размера
-    min_height = arr.shape[0] * 0.05 # Игнорируем всё, что меньше 5% высоты фото
-
-    # Сортируем контуры слева направо, чтобы цифры шли по порядку
-    bounding_boxes = [cv2.boundingRect(c) for c in contours]
-    bounding_boxes.sort(key=lambda x: x[0])
-
-    for x, y, w, h in bounding_boxes:
-        if h < min_height: # Пропускаем логотипы и мелкий текст
+    for split in splits:
+        if len(split) < 5: # Игнорируем мелкий мусор
             continue
 
-        # Вырезаем найденную цифру
-        digit_arr = arr[y:y+h, x:x+w]
+        x_min, x_max = split[0], split[-1]
+        rows = np.any(arr[:, x_min:x_max+1] > 0, axis=1)
+        y_min, y_max = np.where(rows)[0][[0, -1]]
 
-        # Вписываем в квадрат 28x28
+        digit_arr = arr[y_min:y_max+1, x_min:x_max+1]
+
+        h, w = digit_arr.shape
         size = max(h, w)
         pad = int(size * 0.2)
         square = np.zeros((size + 2*pad, size + 2*pad), dtype=np.uint8)
