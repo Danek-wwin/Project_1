@@ -131,8 +131,20 @@ if uploaded_file is not None:
             # --- НОВЫЙ БЛОК: Показываем, как видит сеть ---
             st.divider() # Красивая линия-разделитель
 
-            # Создаем кнопку
-            if st.button("👁️ Показать, как видит нейросеть"):
+            # Создаем "память" для кнопки, если ее еще нет
+            if 'show_images' not in st.session_state:
+                st.session_state.show_images = False
+
+            # Кнопка-переключатель
+            button_text = "🙈 Скрыть, как видит нейросеть" if st.session_state.show_images else "👁️ Показать, как видит нейросеть"
+
+            if st.button(button_text):
+                # Меняем состояние на противоположное (было False -> стало True)
+                st.session_state.show_images = not st.session_state.show_images
+                st.rerun() # Принудительно перерисовываем страницу, чтобы применить изменения
+
+            # Если состояние True (кнопка нажата) — показываем картинки
+            if st.session_state.show_images:
                 st.write("Ниже показаны картинки 28x28, которые нейросеть получила на вход:")
     
                 # Создаем колонки, чтобы картинки шли в ряд
@@ -142,7 +154,7 @@ if uploaded_file is not None:
                     # 1. Превращаем тензор в numpy-массив
                     img_array = tensor[0].numpy()
         
-                    # 2. Делаем обратную нормализацию (чтобы вернуть картинке нормальный вид)
+                    # 2. Делаем обратную нормализацию
                     img_array = img_array * 0.3081 + 0.1307
         
                     # 3. Показываем картинку в колонке
