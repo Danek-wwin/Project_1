@@ -128,3 +128,22 @@ if uploaded_file is not None:
             st.write("Детали по цифрам:")
             for i, (digit, conf) in enumerate(zip(predicted_number, confidences)):
                 st.write(f"- Цифра {i+1}: **{digit}** (уверенность {conf:.1f}%)")
+            # --- НОВЫЙ БЛОК: Показываем, как видит сеть ---
+            st.divider() # Красивая линия-разделитель
+
+            # Создаем кнопку
+            if st.button("👁️ Показать, как видит нейросеть"):
+                st.write("Ниже показаны картинки 28x28, которые нейросеть получила на вход:")
+    
+                # Создаем колонки, чтобы картинки шли в ряд
+                cols = st.columns(len(tensors_list))
+    
+                for i, tensor in enumerate(tensors_list):
+                    # 1. Превращаем тензор в numpy-массив
+                    img_array = tensor[0].numpy()
+        
+                    # 2. Делаем обратную нормализацию (чтобы вернуть картинке нормальный вид)
+                    img_array = img_array * 0.3081 + 0.1307
+        
+                    # 3. Показываем картинку в колонке
+                    cols[i].image(img_array, caption=f"Вход для {predicted_number[i]}", width=100, clamp=True)
