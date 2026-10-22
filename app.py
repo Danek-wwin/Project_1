@@ -128,37 +128,27 @@ else:
     uploaded_file = st.file_uploader("Выберите изображение...", type=["jpg", "jpeg", "png"])
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
-# ... (твой код выбора камеры или загрузки файла, где создается переменная image) ...
 
 if image is not None:
     st.write("### Обрежьте фото")
     st.write("Выделите рамкой только те цифры, которые нужно распознать.")
     
-    # Вызываем интерактивную обрезку
-    # realtime_update=True означает, что картинка будет обрезаться сразу, как ты двигаешь рамку
+    # Интерактивная обрезка
     cropped_image = st_cropper(
         image, 
         realtime_update=True, 
-        box_color='#FF0000', # Красная рамка для заметности
-        aspect_ratio=None    # Свободные пропорции, чтобы ты сам мог выбрать нужную область
+        box_color='#FF0000', 
+        aspect_ratio=None
     )
     
-    # Показываем то, что получилось после обрезки
     st.image(cropped_image, caption='Фото после обрезки', width=300)
     
-    # Дальше в обработку идет уже обрезанное фото
     with st.spinner('Распознаем...'):
+        # Передаем в функцию ОБРЕЗАННОЕ фото
         tensors_list = preprocess_multiple_digits(cropped_image)
-        # ... (и весь остальной код предсказания остается без изменений) ...
-if image is not None:    
-    # Показываем загруженное фото
-    st.image(image, caption='Ваше фото', width=300)
-    
-    with st.spinner('Распознаем...'):
-        tensors_list = preprocess_multiple_digits(image)
         
         if len(tensors_list) == 0:
-            st.error("Не удалось найти цифры на фото. Попробуйте сфотографировать еще раз.")
+            st.error("Не удалось найти цифры на фото. Попробуйте выделить их рамкой.")
         else:
             predicted_number = ""
             confidences = []
@@ -180,34 +170,27 @@ if image is not None:
             st.write("Детали по цифрам:")
             for i, (digit, conf) in enumerate(zip(predicted_number, confidences)):
                 st.write(f"- Цифра {i+1}: **{digit}** (уверенность {conf:.1f}%)")
-            # --- НОВЫЙ БЛОК: Показываем, как видит сеть ---
-            st.divider() # Красивая линия-разделитель
+                
+            # --- БЛОК С КНОПКОЙ ---
+            st.divider()
 
-            # Создаем "память" для кнопки, если ее еще нет
             if 'show_images' not in st.session_state:
                 st.session_state.show_images = False
 
-            # Кнопка-переключатель
             button_text = "🙈 Скрыть, как видит нейросеть" if st.session_state.show_images else "👁️ Показать, как видит нейросеть"
 
             if st.button(button_text):
-                # Меняем состояние на противоположное (было False -> стало True)
                 st.session_state.show_images = not st.session_state.show_images
-                st.rerun() # Принудительно перерисовываем страницу, чтобы применить изменения
+                st.rerun()
 
-            # Если состояние True (кнопка нажата) — показываем картинки
             if st.session_state.show_images:
                 st.write("Ниже показаны картинки 28x28, которые нейросеть получила на вход:")
     
-                # Создаем колонки, чтобы картинки шли в ряд
                 cols = st.columns(len(tensors_list))
     
                 for i, tensor in enumerate(tensors_list):
-                    # 1. Превращаем тензор в numpy-массив
                     img_array = tensor[0].numpy()
-        
-                    # 2. Делаем обратную нормализацию
                     img_array = img_array * 0.3081 + 0.1307
-        
-                    # 3. Показываем картинку в колонке
+                    
+                    # Обрати внимание: в конце дописано 'clamp=True'
                     cols[i].image(img_array, caption=f"Вход для {predicted_number[i]}", width=100, clamp=True)
