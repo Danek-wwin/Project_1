@@ -100,9 +100,22 @@ st.write("Загрузите фото с числом. Цифры должны �
 # Кнопка загрузки файла
 uploaded_file = st.file_uploader("Выберите изображение...", type=["jpg", "jpeg", "png"])
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    
+# --- Выбор способа ввода: камера или файл ---
+st.write("Выберите способ добавления фото:")
+option = st.radio("", ["📷 Сделать фото", "📁 Загрузить файл"], label_visibility="collapsed")
+
+image = None
+
+if option == "📷 Сделать фото":
+    picture = st.camera_input("Сделайте снимок")
+    if picture:
+        image = Image.open(picture)
+else:
+    uploaded_file = st.file_uploader("Выберите изображение...", type=["jpg", "jpeg", "png"])
+    if uploaded_file is not None:
+        image = Image.open(uploaded_file)
+
+if image is not None:    
     # Показываем загруженное фото
     st.image(image, caption='Ваше фото', width=300)
     
